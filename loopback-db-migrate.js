@@ -1,17 +1,24 @@
 #!/usr/bin/env node
 'use strict';
 
-var fs = require('fs'),
-  prompt = require('cli-prompt'),
-  dbNameFlag = process.argv.indexOf('--datasource'),
-  dbName = (dbNameFlag > -1) ? process.argv[dbNameFlag + 1] : 'db',
-  dateSinceFlag = process.argv.indexOf('--since'),
-  dateSinceFilter = (dateSinceFlag > -1) ? process.argv[dateSinceFlag + 1] : '',
-  migrationsFolderFlag = process.argv.indexOf('--directory'),
-  migrationsFolder = process.cwd() + ( migrationsFolderFlag > -1 ? process.argv[migrationsFolderFlag + 1].replace(/\/?$/, '/') : '/server/migrations/'),
-  dbMigrationsFolder = migrationsFolder+dbName,
-  app = require(process.cwd() + '/server/server.js'),
-  datasource = app.dataSources[dbName];
+var fs = require('fs');
+var prompt = require('cli-prompt');
+
+var dbNameFlag = process.argv.indexOf('--datasource');
+var dbName = (dbNameFlag > -1) ? process.argv[dbNameFlag + 1] : 'db';
+
+var dateSinceFlag = process.argv.indexOf('--since');
+var dateSinceFilter = (dateSinceFlag > -1) ? process.argv[dateSinceFlag + 1] : '';
+
+var migrationsFolderFlag = process.argv.indexOf('--directory');
+var migrationsFolder = process.cwd() + (migrationsFolderFlag > -1 ? process.argv[migrationsFolderFlag + 1].replace(/\/?$/, '/') : '/server/migrations/');
+var dbMigrationsFolder = migrationsFolder + dbName;
+
+var appScriptFlag = process.argv.indexOf('--app-script');
+var appScript = appScriptFlag > -1 ? process.argv[appScriptFlag + 1] : '/server/server.js'
+var app = require(process.cwd() + appScript);
+
+var datasource = app.dataSources[dbName];
 
 if (!datasource) {
   console.log('datasource \'' + dbName + '\' not found!');
@@ -121,7 +128,7 @@ function migrateScripts(upOrDown) {
           console.log(err);
           process.exit(1);
         }
-        
+
         var migrationCallStack = [],
           migrationCallIndex = 0;
 
