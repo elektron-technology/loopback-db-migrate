@@ -18,115 +18,94 @@ const appScriptFlag = process.argv.indexOf('--app-script');
 const appScript = appScriptFlag > -1 ? process.argv[appScriptFlag + 1] : '/server/server.js';
 const app = require(process.cwd() + appScript);
 
-const datasource = app.dataSources[dbName];
+app.on('booted', () => {
+  const datasource = app.dataSources[dbName];
 
-if (!datasource) {
-  console.log('datasource \'' + dbName + '\' not found!');
-  process.exit(1);
-}
-
-datasource.createModel('Migration', {
-  "name": {
-    "id": true,
-    "type": "String",
-    "required": true,
-    "length": 100
-  },
-  "db": {
-    "type": "String",
-    "length": 100,
-    "required": true
-  },
-  "runDtTm": {
-    "type": "Date",
-    "required": true
+  if (!datasource) {
+    console.log('datasource \'' + dbName + '\' not found!');
+    process.exit(1);
   }
-});
 
-// make migration folders if they don't exist
-try {
-  fs.mkdirSync(migrationsFolder);
-} catch (e) {
-}
-
-try {
-  fs.mkdirSync(dbMigrationsFolder);
-} catch (e) {
-}
-
-function mapScriptObjName(scriptObj) {
-  return scriptObj.name;
-}
-
-function findScriptsToRun(upOrDown, cb) {
-  const filters = {
-    where: {
-      name: {gte: dateSinceFilter + '' || ''}
+  datasource.createModel('Migration', {
+    "name": {
+      "id": true,
+      "type": "String",
+      "required": true,
+      "length": 100
     },
-    order: (upOrDown === 'up') ? 'name ASC' : 'name DESC'
-  };
-
-  // get all local scripts and filter for only .js files
-  const localScriptNames = fs.readdirSync(dbMigrationsFolder).filter(function (fileName) {
-    return fileName.substring(fileName.length - 3, fileName.length) === '.js';
+    "db": {
+      "type": "String",
+      "length": 100,
+      "required": true
+    },
+    "runDtTm": {
+      "type": "Date",
+      "required": true
+    }
   });
 
-  // create table if not exists
-  datasource.autoupdate('Migration', function (err) {
-    if (err) {
-      console.log('Error retrieving migrations:');
-      console.log(err.stack);
-      process.exit(1);
-    }
+  // make migration folders if they don't exist
+  try {
+    fs.mkdirSync(migrationsFolder);
+  } catch (e) {
+  }
 
-    // get all scripts that have been run from DB
-    datasource.models.Migration.find(filters, function (err, scriptsRun) {
+  try {
+    fs.mkdirSync(dbMigrationsFolder);
+  } catch (e) {
+  }
+
+  function mapScriptObjName(scriptObj) {
+    return scriptObj.name;
+  }
+
+  function findScriptsToRun(upOrDown, cb) {
+    const filters = {
+      where: {
+        name: {gte: dateSinceFilter + '' || ''}
+      },
+      order: (upOrDown === 'up') ? 'name ASC' : 'name DESC'
+    };
+
+    // get all local scripts and filter for only .js files
+    const localScriptNames = fs.readdirSync(dbMigrationsFolder).filter(function (fileName) {
+      return fileName.substring(fileName.length - 3, fileName.length) === '.js';
+    });
+
+    // create table if not exists
+    datasource.autoupdate('Migration', function (err) {
       if (err) {
         console.log('Error retrieving migrations:');
         console.log(err.stack);
         process.exit(1);
       }
 
-      if (upOrDown === 'up') {
-        const runScriptsNames = scriptsRun.map(mapScriptObjName);
+      // get all scripts that have been run from DB
+      datasource.models.Migration.find(filters, function (err, scriptsRun) {
+        if (err) {
+          console.log('Error retrieving migrations:');
+          console.log(err.stack);
+          process.exit(1);
+        }
 
-        // return scripts that exist on disk but not in the db
-        cb(localScriptNames.filter(function (scriptName) {
-          return runScriptsNames.indexOf(scriptName) < 0;
-        }));
-      } else {
-        // return all db script names
-        cb(scriptsRun.map(mapScriptObjName));
-      }
+        if (upOrDown === 'up') {
+          const runScriptsNames = scriptsRun.map(mapScriptObjName);
+
+          // return scripts that exist on disk but not in the db
+          cb(null, localScriptNames.filter(function (scriptName) {
+            return runScriptsNames.indexOf(scriptName) < 0;
+          }));
+        } else {
+          // return all db script names
+          cb(null, scriptsRun.map(mapScriptObjName));
+        }
+      });
     });
-  });
-}
+  }
 
-function waitForAppToBeBooted(done) {
-  const INTERVAL = 50;
-  const TIMEOUT = 3 * 1000;
-  let internalId;
-  let count = 0;
-
-  internalId = setInterval(() => {
-    count += INTERVAL;
-
-    if (!app.booting) {
-      clearInterval(internalId);
-      return done();
-    }
-
-    if (count >= TIMEOUT) {
-      clearInterval(internalId);
-      return done(new Error('loopback application took too long to boot up. Timing out...'));
-    }
-  }, INTERVAL);
-}
-
-function migrateScripts(upOrDown) {
-  return function findAndRunScripts() {
-    findScriptsToRun(upOrDown, function runScripts(scriptsToRun) {
-      waitForAppToBeBooted(function (err) {
+  function migrateScripts(upOrDown) {
+    return function findAndRunScripts() {
+      findScriptsToRun(upOrDown, function runScripts(err, scriptsToRun) {
         if (err) {
           console.log(err);
           process.exit(1);
@@ -191,44 +170,44 @@ function migrateScripts(upOrDown) {
           process.exit();
         }
       });
-    });
-  }
-}
-
-function stringifyAndPadLeading(num) {
-  const str = num + '';
-  return (str.length === 1) ? '0' + str : str;
-}
-
-const commands = {
-  up: migrateScripts('up'),
-  down: migrateScripts('down'),
-  create: function create(name) {
-    const cmdLineName = name || process.argv[process.argv.indexOf('create') + 1];
-
-    if (!cmdLineName) {
-      return prompt('Enter migration script name:', create);
     }
-
-    const d = new Date();
-    const year = d.getFullYear() + '';
-    const month = stringifyAndPadLeading(d.getMonth() + 1);
-    const day = stringifyAndPadLeading(d.getDate());
-    const hours = stringifyAndPadLeading(d.getHours());
-    const minutes = stringifyAndPadLeading(d.getMinutes());
-    const seconds = stringifyAndPadLeading(d.getSeconds());
-    const dateString = year + month + day + hours + minutes + seconds;
-    const fileName = '/' + dateString + (cmdLineName && cmdLineName.indexOf('--') === -1 ? '-' + cmdLineName : '') + '.js';
-
-    fs.writeFileSync(dbMigrationsFolder + fileName, fs.readFileSync(__dirname + '/migration-skeleton.js'));
-    process.exit();
   }
-};
 
-const cmdNames = Object.keys(commands);
-
-for (let i = 0; i < cmdNames.length; i++) {
-  if (process.argv.indexOf(cmdNames[i]) > -1) {
-    return commands[cmdNames[i]]();
+  function stringifyAndPadLeading(num) {
+    const str = num + '';
+    return (str.length === 1) ? '0' + str : str;
   }
-}
+
+  const commands = {
+    up: migrateScripts('up'),
+    down: migrateScripts('down'),
+    create: function create(name) {
+      const cmdLineName = name || process.argv[process.argv.indexOf('create') + 1];
+
+      if (!cmdLineName) {
+        return prompt('Enter migration script name:', create);
+      }
+
+      const d = new Date();
+      const year = d.getFullYear() + '';
+      const month = stringifyAndPadLeading(d.getMonth() + 1);
+      const day = stringifyAndPadLeading(d.getDate());
+      const hours = stringifyAndPadLeading(d.getHours());
+      const minutes = stringifyAndPadLeading(d.getMinutes());
+      const seconds = stringifyAndPadLeading(d.getSeconds());
+      const dateString = year + month + day + hours + minutes + seconds;
+      const fileName = '/' + dateString + (cmdLineName && cmdLineName.indexOf('--') === -1 ? '-' + cmdLineName : '') + '.js';
+
+      fs.writeFileSync(dbMigrationsFolder + fileName, fs.readFileSync(__dirname + '/migration-skeleton.js'));
+      process.exit();
+    }
+  };
+
+  const cmdNames = Object.keys(commands);
+
+  for (let i = 0; i < cmdNames.length; i++) {
+    if (process.argv.indexOf(cmdNames[i]) > -1) {
+      return commands[cmdNames[i]]();
+    }
+  }
+})
