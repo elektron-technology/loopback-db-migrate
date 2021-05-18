@@ -18,6 +18,9 @@ const appScriptFlag = process.argv.indexOf('--app-script');
 const appScript = appScriptFlag > -1 ? process.argv[appScriptFlag + 1] : '/server/server.js';
 const app = require(process.cwd() + appScript);
 
+const migrationCollectionFlag = process.argv.indexOf('--migration-collection');
+const migrationCollection = migrationCollectionFlag > -1 ? process.argv[migrationCollectionFlag + 1] : 'Migration';
+
 app.on('booted', () => {
   const datasource = app.dataSources[dbName];
 
@@ -26,7 +29,7 @@ app.on('booted', () => {
     process.exit(1);
   }
 
-  datasource.createModel('Migration', {
+  datasource.createModel(migrationCollection, {
     "name": {
       "id": true,
       "type": "String",
@@ -73,7 +76,7 @@ app.on('booted', () => {
     });
 
     // create table if not exists
-    datasource.autoupdate('Migration', function (err) {
+    datasource.autoupdate(migrationCollection, function (err) {
       if (err) {
         console.log('Error retrieving migrations:');
         console.log(err.stack);
@@ -81,7 +84,7 @@ app.on('booted', () => {
       }
 
       // get all scripts that have been run from DB
-      datasource.models.Migration.find(filters, function (err, scriptsRun) {
+      datasource.models[migrationCollection].find(filters, function (err, scriptsRun) {
         if (err) {
           console.log('Error retrieving migrations:');
           console.log(err.stack);
@@ -143,13 +146,13 @@ app.on('booted', () => {
                   console.log(err.stack);
                   process.exit(1);
                 } else if (upOrDown === 'up') {
-                  datasource.models.Migration.create({
+                  datasource.models[migrationCollection].create({
                     name: localScriptName,
                     db: dbName,
                     runDtTm: new Date()
                   }, runNextScript);
                 } else {
-                  datasource.models.Migration.destroyAll({
+                  datasource.models[migrationCollection].destroyAll({
                     name: localScriptName
                   }, runNextScript);
                 }
